@@ -38,21 +38,15 @@ def stage_flow(i):
 	X = np.linalg.solve(A, B)
 	return(X)
   
-# flowrates are in gpm
+# run flow calculation for each stage
 for i in range(0, number_of_stages):
 	A_flow[i] = stage_flow(i)[0]
 	R_flow[i] = stage_flow(i)[1]
-
-
-# A_flow = [stage_flow(0)[0], stage_flow(1)[0], stage_flow(2)[0]]
-# R_flow = [stage_flow(0)[1], stage_flow(1)[1], stage_flow(2)[1]]
   
 print(F_flow)
 print(A_flow)
 print(R_flow)
 
-for i in range(0, 3):
-	print(i)
 
 
 
