@@ -52,10 +52,6 @@ def stage_flow(i):
 for i in range(0, number_of_stages):
 	stage_flow(i)
   
-print(F_flow)
-print(A_flow)
-print(R_flow)
-
 # whitewater: reject flow and consistencies are known. whitewater consisency will be given. whitewater flow calculated from reject consistency and feed consistency to following stage
 # example: reject mass fraction = 0.03, reject flow = 19 gpm, next stage feed mass fraction = .012, feed flow = 170 gpm, whitewater mass fraction = 0.0002. 
 
@@ -67,7 +63,10 @@ print(R_flow)
 for i in range(0, number_of_stages - 1):
 	WW_flow[i] = F_flow[i + 1] - R_flow[i]
 
-print(WW_flow)
+# print(F_flow)
+# print(A_flow)
+# print(R_flow)
+# print(WW_flow)
 
 
 
