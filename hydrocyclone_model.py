@@ -6,7 +6,7 @@
 import math
 import numpy as np
 
-np.set_printoptions(suppress=True)
+np.set_printoptions(suppress=True) #does... something
 
 rF = 163.0 #gpm
 rPD = 21.0 #psid
@@ -63,10 +63,10 @@ for i in range(0, number_of_stages):
 for i in range(0, number_of_stages - 1):
 	WW_flow[i] = F_flow[i + 1] - R_flow[i]
 
-# print(F_flow)
-# print(A_flow)
-# print(R_flow)
-# print(WW_flow)
+print(F_flow)
+print(A_flow)
+print(R_flow)
+print(WW_flow)
 
 
 
