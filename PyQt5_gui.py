@@ -62,8 +62,8 @@ class hydrocyclones(QWidget):
 
         self.initUI()
     
-       
-    def calculate(self):
+    @staticmethod  
+    def calculate():
     
         try:
             for i in range(0, number_of_stages):
