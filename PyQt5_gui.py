@@ -1,29 +1,80 @@
 import sys
+import math
+import numpy as np
 from PyQt5.QtWidgets import QWidget, QHBoxLayout, QVBoxLayout, QPushButton, QApplication, QLineEdit, QFrame, QGridLayout, QLabel, QInputDialog
 from PyQt5.QtGui import *
 
+np.set_printoptions(suppress=True) #converts numbers from scientific to standard notation
+
+#consistencies are in %
 field_cons = {}
 consistencies = {}
+
+#pressures are in psi
 field_pres = {}
 pressures = {}
-number_of_stages = 6
 
-class Example(QWidget):
+number_of_stages = 3
+
+#reference cleaner values
+rF = 163.0 #gpm
+rPD = 21.0 #psid
+
+number_of_cleaners = [1] * number_of_stages #update this 
+
+# flow rates are in gpm. assign placeholder values
+F_flow = [0] * number_of_stages
+A_flow = [0] * number_of_stages
+R_flow = [0] * number_of_stages
+
+WW_cons = .0002
+WW_flow = [0] * (number_of_stages - 1) # WW_flow dilutes rejects of corresponding stage. no dilution on final stage
+
+flow_factor = math.sqrt(rF / rPD)
+
+def foo():
+    print("bar")
+
+def stage_flow(i):
+    print(consistencies['{}F'.format(i + 1)])
+    actual_PD = pressures['{}F'.format(i + 1)] - pressures['{}A'.format(i + 1)]
+    print(actual_PD)
+    F_flow[i] = number_of_cleaners[i] * (math.sqrt(actual_PD) * flow_factor) ** 2
+    A = np.array([[1, 1], [consistencies['{}A'.format(i + 1)], consistencies['{}R'.format(i + 1)]]])
+    B = np.array([F_flow[i], consistencies['{}F'.format(i + 1)] * F_flow[i]])
+    print(A, B)
+    X = np.linalg.solve(A, B)
+    A_flow[i] = X[0]
+    R_flow[i] = X[1]
+    return(X)
+
+def calculate_flow():
+    for i in range(0, number_of_stages):
+        stage_flow(i)
+        print(F_flow[i])
+        print(A_flow[i])
+        print(R_flow[i])
+
+class hydrocyclones(QWidget):
 
     def __init__(self):
         super().__init__()
 
         self.initUI()
     
-        
+       
     def calculate(self):
-        
-        for i in range(0, number_of_stages):
-            #test = consistencies['{}F'.format(i + 1)].text()
-            consistencies.update({'{}F'.format(i + 1): field_cons['{}F'.format(i + 1)].text(), 
-                '{}A'.format(i + 1): field_cons['{}A'.format(i + 1)].text(), '{}R'.format(i + 1): field_cons['{}R'.format(i + 1)].text()})
-            pressures.update({'{}F'.format(i + 1): field_pres['{}F'.format(i + 1)].text(), 
-                '{}A'.format(i + 1): field_pres['{}A'.format(i + 1)].text(), '{}R'.format(i + 1): field_pres['{}R'.format(i + 1)].text()})
+    
+        try:
+            for i in range(0, number_of_stages):
+                #print(float(field_cons['{}F'.format(i + 1)].text()) + 1)
+                consistencies.update({'{}F'.format(i + 1): float(field_cons['{}F'.format(i + 1)].text()), 
+                    '{}A'.format(i + 1): float(field_cons['{}A'.format(i + 1)].text()), '{}R'.format(i + 1): float(field_cons['{}R'.format(i + 1)].text())})
+                pressures.update({'{}F'.format(i + 1): float(field_pres['{}F'.format(i + 1)].text()), 
+                    '{}A'.format(i + 1): float(field_pres['{}A'.format(i + 1)].text()), '{}R'.format(i + 1): float(field_pres['{}R'.format(i + 1)].text())})
+                #print(pressures['{}A'.format(i + 1)])
+        except(ValueError): 
+            print("Please enter a value in each field")
 
 
     def initUI(self):
@@ -89,6 +140,7 @@ class Example(QWidget):
         self.setLayout(data_hbox)
 
         calculate_button.clicked.connect(self.calculate)
+        calculate_button.clicked.connect(calculate_flow)
 
 
 
@@ -100,10 +152,7 @@ class Example(QWidget):
         self.show()
 
 
-
-
-if __name__ == '__main__':
-    app = QApplication(sys.argv)
-    ex1 = Example()
-    # ex2 = Example()
-    sys.exit(app.exec())
+#if __name__ == '__main__':
+app = QApplication(sys.argv)
+ex1 = hydrocyclones()
+sys.exit(app.exec())
