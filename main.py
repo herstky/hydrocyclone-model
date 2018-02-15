@@ -19,9 +19,8 @@ class hydrocyclones(QWidget):
         
         self.number_of_stages = self.get_number_of_stages()
         
-        #consistencies should be entered as a percent and converted to decimal for calculations. need to implement
         self.field_cons = {}
-        self.consistencies = {}
+        self.consistencies = {} #consistencies are entered as percentages then converted to decimals before being stored in this dictionary
 
         #pressures are in psi
         self.field_pres = {}
@@ -36,7 +35,8 @@ class hydrocyclones(QWidget):
         self.A_flow = [0] * self.number_of_stages
         self.R_flow = [0] * self.number_of_stages
 
-        self.number_of_cleaners = [1] * self.number_of_stages #update this. assign number of cleaners per stage in system info box
+        self.field_number_of_cleaners = {}
+        self.number_of_cleaners = {} #update this. assign number of cleaners per stage in system info box
 
         self.WW_flow = [0] * (self.number_of_stages - 1) #WW_flow dilutes rejects of corresponding stage. no dilution on final stage
 
@@ -44,7 +44,7 @@ class hydrocyclones(QWidget):
 
         self.initUI()
     
-    #should this be a class method?
+
     def get_number_of_stages(self):
 
         stages = ('1', '2', '3', '4', '5', '6', '7')
@@ -55,46 +55,55 @@ class hydrocyclones(QWidget):
             app.exec()
 
 
-    #this should probably be a class method
     #fetches data from user entry fields, converts it from strings to floats, and maps to dictionaries that are used for calculations
     def calculate(self):
 
         try:
+            self.consistencies.update({'WW': float(self.field_cons['WW'].text()) / 100})
+
             for i in range(0, self.number_of_stages):
-                self.consistencies.update({'{}F'.format(i + 1): float(self.field_cons['{}F'.format(i + 1)].text()), 
-                    '{}A'.format(i + 1): float(self.field_cons['{}A'.format(i + 1)].text()), '{}R'.format(i + 1): float(self.field_cons['{}R'.format(i + 1)].text())})
+                self.number_of_cleaners.update({'stage {}'.format(i + 1): int(self.field_number_of_cleaners['stage {}'.format(i + 1)].text())})
+
+                self.consistencies.update({'{}F'.format(i + 1): float(self.field_cons['{}F'.format(i + 1)].text()) / 100, 
+                    '{}A'.format(i + 1): float(self.field_cons['{}A'.format(i + 1)].text()) / 100, '{}R'.format(i + 1): float(self.field_cons['{}R'.format(i + 1)].text()) / 100})
                 self.pressures.update({'{}F'.format(i + 1): float(self.field_pres['{}F'.format(i + 1)].text()), 
                     '{}A'.format(i + 1): float(self.field_pres['{}A'.format(i + 1)].text()), '{}R'.format(i + 1): float(self.field_pres['{}R'.format(i + 1)].text())})
 
-                self.stage_flow(i)
-                print(self.F_flow[i])
-                print(self.A_flow[i])
-                print(self.R_flow[i])
+                self.stage_flow_calc(i)
 
+                print('{}F Flow = '.format(i + 1), self.F_flow[i], ' gpm')
+                print('{}A Flow = '.format(i + 1), self.A_flow[i], ' gpm')
+                print('{}R Flow = '.format(i + 1), self.R_flow[i], ' gpm')
+
+            for i in range(0, self.number_of_stages):
                 if i < self.number_of_stages - 1:
-                    print(self.WW_flow[i])
+                    self.WW_flow_calc(i)
+                    print('{}WW Flow = '.format(i + 1), self.WW_flow[i], ' gpm')
 
-            self.consistencies.update({'WW': float(self.field_cons['WW'].text())})
-
-        except(ValueError): #request data if any fields are left blank. needs to be a message box. need to add ww
+        except(ValueError): #request data if any fields are left blank. needs to be a message box.
             print('Please enter a value in each field')
 
 
 
-    def stage_flow(self, i):
+    def stage_flow_calc(self, i):
 
-        #!!THIS DOESNT TAKE WW OR ACCEPTS RECIRC INTO ACCOUNT!! will affect WW dilution flow and mass balance when implemented
         self.actual_PD = self.pressures['{}F'.format(i + 1)] - self.pressures['{}A'.format(i + 1)]
-        self.F_flow[i] = self.number_of_cleaners[i] * (math.sqrt(self.actual_PD) * self.flow_factor) ** 2
+        self.F_flow[i] = self.number_of_cleaners['stage {}'.format(i + 1)] * (math.sqrt(self.actual_PD) * self.flow_factor) ** 2
         self.A = np.array([[1, 1], [self.consistencies['{}A'.format(i + 1)], self.consistencies['{}R'.format(i + 1)]]])
         self.B = np.array([self.F_flow[i], self.consistencies['{}F'.format(i + 1)] * self.F_flow[i]])
         self.X = np.linalg.solve(self.A, self.B)
         self.A_flow[i] = self.X[0]
         self.R_flow[i] = self.X[1]
 
+
+    def WW_flow_calc(self, i):
+
         if i < self.number_of_stages - 1:
-            self.WW_flow[i] = self.F_flow[i + 1] - self.R_flow[i]
-        
+            if i < self.number_of_stages -2:
+                self.WW_flow[i] = self.F_flow[i + 1] - self.R_flow[i] - self.A_flow[i + 2]
+            else:
+                self.WW_flow[i] = self.F_flow[i + 1] - self.R_flow[i] 
+
 
     def initUI(self):
 
@@ -107,13 +116,21 @@ class hydrocyclones(QWidget):
         cons_grid = QGridLayout()
         pres_grid = QGridLayout()
 
-        
+        #add number of cleaners per stage to system info
+        for i in range(0, self.number_of_stages):
+            number_of_cleaners_label = QLabel('Cleaners in stage {} ='.format(i + 1))
+            sys_grid.addWidget(number_of_cleaners_label, i + 1, 0)
+
+            self.field_number_of_cleaners.update({'stage {}'.format(i + 1): QLineEdit()})
+            sys_grid.addWidget(self.field_number_of_cleaners['stage {}'.format(i + 1)], i + 1, 1)
+
+
         #this loop maps fields to a dictionary of consistency and pressure values and adds them to the corresponding grids
         for i in range(0, self.number_of_stages):
-
             cons_feed_label = QLabel('{}F ='.format(i + 1)) #create label
             cons_accepts_label = QLabel('{}A ='.format(i + 1))
             cons_rejects_label = QLabel('{}R ='.format(i + 1))
+
             cons_grid.addWidget(cons_feed_label, i, 0) #add label to grid
             cons_grid.addWidget(cons_accepts_label, i, 2)
             cons_grid.addWidget(cons_rejects_label, i, 4)
