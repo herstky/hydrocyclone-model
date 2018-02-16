@@ -7,36 +7,42 @@
 import sys
 import math
 import numpy as np
+
 from PyQt5.QtWidgets import QWidget, QHBoxLayout, QVBoxLayout, QPushButton, QApplication, QLineEdit, QFrame, QGridLayout, QLabel, QInputDialog, QComboBox
 from PyQt5.QtGui import *
 
-np.set_printoptions(suppress=True) #converts numbers from scientific to standard notation
+np.set_printoptions(suppress=True) #converts numbers from scientific to standard notation (numpy)
 
-cleaner_models = []
+
+
 
 class hydrocyclones():
-    def __init__(self, model, reference_flow, reference_PD): #maybe add optional arguments for ideal RRV and RRW range
 
+    cleaner_models = []
+
+    def __init__(self, model, reference_flow, reference_PD): #maybe add optional arguments for ideal RRV and RRW range
         self.model = model
         self.reference_flow = reference_flow
         self.reference_PD = reference_PD
+        self.reference_data = [self.reference_flow, self.reference_PD]
 
-        cleaner_models.append(self.model)
+        hydrocyclones.cleaner_models.append([self.model, self.reference_flow, self.reference_PD]) 
 
-
-CLP_700 = hydrocyclones('CLP 700', 163, 21) #check reference sheets. store these in different file
+CLP_700 = hydrocyclones('CLP 700', 163, 21) #check reference sheets. store these in seperate file
 CLP_350 = hydrocyclones('CLP 350', 135, 21) 
 posiflow = hydrocyclones('Posiflow', 70, 20)
 
 
+#refactor to seperate calculations and other functions not directly related to gui
 class gui(QWidget):
-
+   
     def __init__(self):
-
         super().__init__()
         
         self.number_of_stages = self.get_number_of_stages()
         
+        self.cleaner_model_in_stage = [0] * self.number_of_stages #list of cleaner models used in each stage
+
         self.field_cons = {}
         self.consistencies = {} #consistencies are entered as percentages then converted to decimals before being stored in this dictionary
 
@@ -48,7 +54,7 @@ class gui(QWidget):
         self.reference_flow = 163.0 #gpm
         self.reference_PD = 21.0 #psid                     
 
-        self.comboBox = [0] * self.number_of_stages
+        self.model_dropdown = [0] * self.number_of_stages
 
         # flow rates are in gpm. assign placeholder values
         self.F_flow = [0] * self.number_of_stages
@@ -68,7 +74,6 @@ class gui(QWidget):
     
 
     def get_number_of_stages(self):
-
         stages = ('1', '2', '3', '4', '5', '6', '7')
         self.num, ok = QInputDialog.getItem(self, 'Setup', 'Number of stages:', stages, 0, False)
         if ok and self.num:
@@ -79,13 +84,17 @@ class gui(QWidget):
 
     #fetches data from user entry fields, converts it from strings to floats, and maps to dictionaries that are used for calculations
     def calculate(self):
-
         try:
             self.consistencies.update({'WW': float(self.field_cons['WW'].text()) / 100})
 
-            for i in range(0, self.number_of_stages):
+            for i in range(self.number_of_stages):
                 self.number_of_cleaners.update({'stage {}'.format(i + 1): 
                 int(self.field_number_of_cleaners['stage {}'.format(i + 1)].text())})
+
+                for hydrocyclones.cleaner_model in hydrocyclones.cleaner_models:
+                    if hydrocyclones.cleaner_model[0] == str(self.model_dropdown[i].currentText()):
+                        self.flow_factor = math.sqrt(hydrocyclones.cleaner_model[1] / hydrocyclones.cleaner_model[2])
+                        break
 
                 self.consistencies.update({'{}F'.format(i + 1): 
                 float(self.field_cons['{}F'.format(i + 1)].text()) / 100, '{}A'.format(i + 1): 
@@ -99,21 +108,20 @@ class gui(QWidget):
 
                 self.stage_flow_calc(i)
 
-                print('{}F Flow = '.format(i + 1), self.F_flow[i], ' gpm')
-                print('{}A Flow = '.format(i + 1), self.A_flow[i], ' gpm')
-                print('{}R Flow = '.format(i + 1), self.R_flow[i], ' gpm')
+                print('{}F Flow ='.format(i + 1), self.F_flow[i], 'gpm')
+                print('{}A Flow ='.format(i + 1), self.A_flow[i], 'gpm')
+                print('{}R Flow ='.format(i + 1), self.R_flow[i], 'gpm')
 
-            for i in range(0, self.number_of_stages):
+            for i in range(self.number_of_stages):
                 if i < self.number_of_stages - 1:
                     self.WW_flow_calc(i)
-                    print('{}WW Flow = '.format(i + 1), self.WW_flow[i], ' gpm')
+                    print('{}WW Flow ='.format(i + 1), self.WW_flow[i], 'gpm')
 
         except(ValueError): #request data if any fields are left blank. needs to be a message box.
             print('Please enter a value in each field')
 
 
     def stage_flow_calc(self, i):
-
         self.actual_PD = self.pressures['{}F'.format(i + 1)] - self.pressures['{}A'.format(i + 1)]
         self.F_flow[i] = self.number_of_cleaners['stage {}'.format(i + 1)] * (math.sqrt(self.actual_PD) * self.flow_factor) ** 2
         self.A = np.array([[1, 1], [self.consistencies['{}A'.format(i + 1)], self.consistencies['{}R'.format(i + 1)]]])
@@ -125,7 +133,6 @@ class gui(QWidget):
 
 
     def WW_flow_calc(self, i):
-
         if i < self.number_of_stages - 1:
             if i < self.number_of_stages -2:
                 self.WW_flow[i] = self.F_flow[i + 1] - self.R_flow[i] - self.A_flow[i + 2]
@@ -134,7 +141,6 @@ class gui(QWidget):
 
 
     def initUI(self):
-
         sys_info_title = QLabel('System Info:')
         cons_title = QLabel('Consistencies (%):')
         pres_title = QLabel('Pressures (psi):')
@@ -145,35 +151,36 @@ class gui(QWidget):
         pres_grid = QGridLayout()
 
 
-        #add number of cleaners per stage to system info
-        for i in range(0, self.number_of_stages):
+        #adds number of cleaners and cleaner models for each stage
+        for i in range(self.number_of_stages):
             number_of_cleaners_label = QLabel('Cleaners in stage {} ='.format(i + 1))
             sys_grid.addWidget(number_of_cleaners_label, i + 1, 0)
 
             self.field_number_of_cleaners.update({'stage {}'.format(i + 1): QLineEdit()})
             sys_grid.addWidget(self.field_number_of_cleaners['stage {}'.format(i + 1)], i + 1, 1)
 
-            self.comboBox[i] = QComboBox()
-            for cleaner_model in cleaner_models:
-                self.comboBox[i].addItem(cleaner_model)
-            sys_grid.addWidget(self.comboBox[i], i + 1, 2) 
+            self.model_dropdown[i] = QComboBox()
+            for hydrocyclones.cleaner_model in hydrocyclones.cleaner_models:
+                self.model_dropdown[i].addItem(hydrocyclones.cleaner_model[0]) #0th item in list refers to cleaner model
+            
+            sys_grid.addWidget(self.model_dropdown[i], i + 1, 2) 
 
 
 
 
         #this loop maps fields to a dictionary of consistency and pressure values and adds them to the corresponding grids
-        for i in range(0, self.number_of_stages):
-            cons_feed_label = QLabel('{}F ='.format(i + 1)) #create label
+        for i in range(self.number_of_stages):
+            cons_feed_label = QLabel('{}F ='.format(i + 1)) #create labels
             cons_accepts_label = QLabel('{}A ='.format(i + 1))
             cons_rejects_label = QLabel('{}R ='.format(i + 1))
 
-            cons_grid.addWidget(cons_feed_label, i, 0) #add label to grid
+            cons_grid.addWidget(cons_feed_label, i, 0) #add labels to grid
             cons_grid.addWidget(cons_accepts_label, i, 2)
             cons_grid.addWidget(cons_rejects_label, i, 4)
 
             self.field_cons.update({'{}F'.format(i + 1): QLineEdit(), '{}A'.format(i + 1): 
             QLineEdit(), '{}R'.format(i + 1): QLineEdit()}) #maps fields to a dictionary
-            cons_grid.addWidget(self.field_cons['{}F'.format(i + 1)], i, 1) #add field to grid
+            cons_grid.addWidget(self.field_cons['{}F'.format(i + 1)], i, 1) #add fields to grid
             cons_grid.addWidget(self.field_cons['{}A'.format(i + 1)], i, 3)
             cons_grid.addWidget(self.field_cons['{}R'.format(i + 1)], i, 5)
             
@@ -238,7 +245,7 @@ class gui(QWidget):
         self.show()
 
 
-#if __name__ == '__main__':
-app = QApplication(sys.argv)
-gui = gui()
-sys.exit(app.exec())
+if __name__ == '__main__':
+    app = QApplication(sys.argv)
+    gui = gui()
+    sys.exit(app.exec())
