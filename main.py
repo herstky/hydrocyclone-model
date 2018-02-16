@@ -82,7 +82,7 @@ class gui(QWidget):
             app.exec()
 
 
-    #fetches data from user entry fields, converts it from strings to floats, and maps to dictionaries that are used for calculations
+    #gets data from user entry fields, converts it from strings to floats, and maps to dictionaries that are used for calculations
     def calculate(self):
         try:
             self.consistencies.update({'WW': float(self.field_cons['WW'].text()) / 100})
