@@ -1,17 +1,35 @@
 #To do:
 #System info sheet. break sheets into tabs?
 #consistency wizard
+#generate report button: create report with info on each stage and recommendations based on reject rates, backflows, PD, etc.
+#mass balance
 
 import sys
 import math
 import numpy as np
-from PyQt5.QtWidgets import QWidget, QHBoxLayout, QVBoxLayout, QPushButton, QApplication, QLineEdit, QFrame, QGridLayout, QLabel, QInputDialog
+from PyQt5.QtWidgets import QWidget, QHBoxLayout, QVBoxLayout, QPushButton, QApplication, QLineEdit, QFrame, QGridLayout, QLabel, QInputDialog, QComboBox
 from PyQt5.QtGui import *
 
 np.set_printoptions(suppress=True) #converts numbers from scientific to standard notation
 
+cleaner_models = []
 
-class hydrocyclones(QWidget):
+class hydrocyclones():
+    def __init__(self, model, reference_flow, reference_PD): #maybe add optional arguments for ideal RRV and RRW range
+
+        self.model = model
+        self.reference_flow = reference_flow
+        self.reference_PD = reference_PD
+
+        cleaner_models.append(self.model)
+
+
+CLP_700 = hydrocyclones('CLP 700', 163, 21) #check reference sheets. store these in different file
+CLP_350 = hydrocyclones('CLP 350', 135, 21) 
+posiflow = hydrocyclones('Posiflow', 70, 20)
+
+
+class gui(QWidget):
 
     def __init__(self):
 
@@ -27,8 +45,10 @@ class hydrocyclones(QWidget):
         self.pressures = {}
 
         #reference cleaner values. should make this a dropdown that will allow users to create custom cleaner styles that are stored in a file
-        self.rF = 163.0 #gpm
-        self.rPD = 21.0 #psid                     
+        self.reference_flow = 163.0 #gpm
+        self.reference_PD = 21.0 #psid                     
+
+        self.comboBox = [0] * self.number_of_stages
 
         # flow rates are in gpm. assign placeholder values
         self.F_flow = [0] * self.number_of_stages
@@ -36,11 +56,13 @@ class hydrocyclones(QWidget):
         self.R_flow = [0] * self.number_of_stages
 
         self.field_number_of_cleaners = {}
-        self.number_of_cleaners = {} #update this. assign number of cleaners per stage in system info box
+        self.number_of_cleaners = {} 
 
-        self.WW_flow = [0] * (self.number_of_stages - 1) #WW_flow dilutes rejects of corresponding stage. no dilution on final stage
+        #WW_flow dilutes rejects of corresponding stage. no dilution on final stage
+        self.WW_flow = [0] * (self.number_of_stages - 1) 
 
-        self.flow_factor = math.sqrt(self.rF / self.rPD) #flow factor is a proportionality constant specific to each cleaner that is used to calculate flow from PD
+        #flow factor is a proportionality constant specific to each cleaner that is used to calculate flow from PD
+        self.flow_factor = math.sqrt(self.reference_flow / self.reference_PD) 
 
         self.initUI()
     
@@ -62,12 +84,18 @@ class hydrocyclones(QWidget):
             self.consistencies.update({'WW': float(self.field_cons['WW'].text()) / 100})
 
             for i in range(0, self.number_of_stages):
-                self.number_of_cleaners.update({'stage {}'.format(i + 1): int(self.field_number_of_cleaners['stage {}'.format(i + 1)].text())})
+                self.number_of_cleaners.update({'stage {}'.format(i + 1): 
+                int(self.field_number_of_cleaners['stage {}'.format(i + 1)].text())})
 
-                self.consistencies.update({'{}F'.format(i + 1): float(self.field_cons['{}F'.format(i + 1)].text()) / 100, 
-                    '{}A'.format(i + 1): float(self.field_cons['{}A'.format(i + 1)].text()) / 100, '{}R'.format(i + 1): float(self.field_cons['{}R'.format(i + 1)].text()) / 100})
-                self.pressures.update({'{}F'.format(i + 1): float(self.field_pres['{}F'.format(i + 1)].text()), 
-                    '{}A'.format(i + 1): float(self.field_pres['{}A'.format(i + 1)].text()), '{}R'.format(i + 1): float(self.field_pres['{}R'.format(i + 1)].text())})
+                self.consistencies.update({'{}F'.format(i + 1): 
+                float(self.field_cons['{}F'.format(i + 1)].text()) / 100, '{}A'.format(i + 1): 
+                float(self.field_cons['{}A'.format(i + 1)].text()) / 100, '{}R'.format(i + 1): 
+                float(self.field_cons['{}R'.format(i + 1)].text()) / 100})
+                
+                self.pressures.update({'{}F'.format(i + 1): 
+                float(self.field_pres['{}F'.format(i + 1)].text()), '{}A'.format(i + 1): 
+                float(self.field_pres['{}A'.format(i + 1)].text()), '{}R'.format(i + 1): 
+                float(self.field_pres['{}R'.format(i + 1)].text())})
 
                 self.stage_flow_calc(i)
 
@@ -84,7 +112,6 @@ class hydrocyclones(QWidget):
             print('Please enter a value in each field')
 
 
-
     def stage_flow_calc(self, i):
 
         self.actual_PD = self.pressures['{}F'.format(i + 1)] - self.pressures['{}A'.format(i + 1)]
@@ -94,6 +121,7 @@ class hydrocyclones(QWidget):
         self.X = np.linalg.solve(self.A, self.B)
         self.A_flow[i] = self.X[0]
         self.R_flow[i] = self.X[1]
+    
 
 
     def WW_flow_calc(self, i):
@@ -116,6 +144,7 @@ class hydrocyclones(QWidget):
         cons_grid = QGridLayout()
         pres_grid = QGridLayout()
 
+
         #add number of cleaners per stage to system info
         for i in range(0, self.number_of_stages):
             number_of_cleaners_label = QLabel('Cleaners in stage {} ='.format(i + 1))
@@ -123,6 +152,13 @@ class hydrocyclones(QWidget):
 
             self.field_number_of_cleaners.update({'stage {}'.format(i + 1): QLineEdit()})
             sys_grid.addWidget(self.field_number_of_cleaners['stage {}'.format(i + 1)], i + 1, 1)
+
+            self.comboBox[i] = QComboBox()
+            for cleaner_model in cleaner_models:
+                self.comboBox[i].addItem(cleaner_model)
+            sys_grid.addWidget(self.comboBox[i], i + 1, 2) 
+
+
 
 
         #this loop maps fields to a dictionary of consistency and pressure values and adds them to the corresponding grids
@@ -135,7 +171,8 @@ class hydrocyclones(QWidget):
             cons_grid.addWidget(cons_accepts_label, i, 2)
             cons_grid.addWidget(cons_rejects_label, i, 4)
 
-            self.field_cons.update({'{}F'.format(i + 1): QLineEdit(), '{}A'.format(i + 1): QLineEdit(), '{}R'.format(i + 1): QLineEdit()}) #maps fields to a dictionary
+            self.field_cons.update({'{}F'.format(i + 1): QLineEdit(), '{}A'.format(i + 1): 
+            QLineEdit(), '{}R'.format(i + 1): QLineEdit()}) #maps fields to a dictionary
             cons_grid.addWidget(self.field_cons['{}F'.format(i + 1)], i, 1) #add field to grid
             cons_grid.addWidget(self.field_cons['{}A'.format(i + 1)], i, 3)
             cons_grid.addWidget(self.field_cons['{}R'.format(i + 1)], i, 5)
@@ -147,7 +184,8 @@ class hydrocyclones(QWidget):
             pres_grid.addWidget(pres_accepts_label, i, 2)
             pres_grid.addWidget(pres_rejects_label, i, 4)
 
-            self.field_pres.update({'{}F'.format(i + 1): QLineEdit(), '{}A'.format(i + 1): QLineEdit(), '{}R'.format(i + 1): QLineEdit()})
+            self.field_pres.update({'{}F'.format(i + 1): QLineEdit(), '{}A'.format(i + 1): 
+            QLineEdit(), '{}R'.format(i + 1): QLineEdit()})
             pres_grid.addWidget(self.field_pres['{}F'.format(i + 1)], i, 1)
             pres_grid.addWidget(self.field_pres['{}A'.format(i + 1)], i, 3)
             pres_grid.addWidget(self.field_pres['{}R'.format(i + 1)], i, 5)            
@@ -202,5 +240,5 @@ class hydrocyclones(QWidget):
 
 #if __name__ == '__main__':
 app = QApplication(sys.argv)
-ex1 = hydrocyclones()
+gui = gui()
 sys.exit(app.exec())
