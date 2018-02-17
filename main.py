@@ -8,40 +8,45 @@ import sys
 import math
 import numpy as np
 
-from PyQt5.QtWidgets import QWidget, QHBoxLayout, QVBoxLayout, QPushButton, QApplication, QLineEdit, QFrame, QGridLayout, QLabel, QInputDialog, QComboBox
+from PyQt5.QtWidgets import *
 from PyQt5.QtGui import *
 
 np.set_printoptions(suppress=True) #converts numbers from scientific to standard notation (numpy)
 
 
 def stage_flow_calc(i):
-    actual_PD = gui1.pressures['{}F'.format(i + 1)] - gui1.pressures['{}A'.format(i + 1)]
-    gui1.F_flow[i] = gui1.number_of_cleaners['stage {}'.format(i + 1)] * (math.sqrt(actual_PD) * gui1.flow_factor) ** 2
-    A = np.array([[1, 1], [gui1.consistencies['{}A'.format(i + 1)], gui1.consistencies['{}R'.format(i + 1)]]])
-    B = np.array([gui1.F_flow[i], gui1.consistencies['{}F'.format(i + 1)] * gui1.F_flow[i]])
+    actual_PD = window.pressures['{}F'.format(i + 1)] - window.pressures['{}A'.format(i + 1)]
+    window.F_flow[i] = window.number_of_cleaners['stage {}'.format(i + 1)] * (math.sqrt(actual_PD) * 
+    hydrocyclones.flow_dict[window.cleaner_model_in_stage]) ** 2
+    
+    A = np.array([[1, 1], [window.consistencies['{}A'.format(i + 1)], window.consistencies['{}R'.format(i + 1)]]])
+    B = np.array([window.F_flow[i], window.consistencies['{}F'.format(i + 1)] * window.F_flow[i]])
     X = np.linalg.solve(A, B)
-    gui1.A_flow[i] = X[0]
-    gui1.R_flow[i] = X[1]
+    window.A_flow[i] = X[0]
+    window.R_flow[i] = X[1]
 
 def WW_flow_calc(i):
-    if i < gui1.number_of_stages - 1:
-        if i < gui1.number_of_stages -2:
-            gui1.WW_flow[i] = gui1.F_flow[i + 1] - gui1.R_flow[i] - gui1.A_flow[i + 2]
+    if i < window.number_of_stages - 1:
+        if i < window.number_of_stages - 2:
+            window.WW_flow[i] = window.F_flow[i + 1] - window.R_flow[i] - window.A_flow[i + 2]
         else:
-            gui1.WW_flow[i] = gui1.F_flow[i + 1] - gui1.R_flow[i] 
+            window.WW_flow[i] = window.F_flow[i + 1] - window.R_flow[i] 
 
 
 class hydrocyclones():
 
     cleaner_models = []
+    flow_dict = {}
 
     def __init__(self, model, reference_flow, reference_PD): #maybe add optional arguments for ideal RRV and RRW range
         self.model = model
         self.reference_flow = reference_flow
         self.reference_PD = reference_PD
         self.reference_data = [self.reference_flow, self.reference_PD]
+        self.flow_factor = math.sqrt(self.reference_flow / self.reference_PD)
+        self.flow_dict.update({self.model: self.flow_factor}) 
 
-        hydrocyclones.cleaner_models.append([self.model, self.reference_flow, self.reference_PD]) 
+        hydrocyclones.cleaner_models.append([self.model])
 
 CLP_700 = hydrocyclones('CLP 700', 163, 21) #check reference sheets. store these in seperate file
 CLP_350 = hydrocyclones('CLP 350', 135, 21) 
@@ -50,8 +55,6 @@ posiflow = hydrocyclones('Posiflow', 70, 20)
 
 #refactor to seperate calculations and other functions not directly related to gui
 class gui(QWidget):
-    
-    
 
     def __init__(self):
         super().__init__()
@@ -65,11 +68,7 @@ class gui(QWidget):
 
         #pressures are in psi
         self.field_pres = {}
-        self.pressures = {}
-
-        #reference cleaner values. should make this a dropdown that will allow users to create custom cleaner styles that are stored in a file
-        self.reference_flow = 163.0 #gpm
-        self.reference_PD = 21.0 #psid                     
+        self.pressures = {}                    
 
         self.model_dropdown = [0] * self.number_of_stages
 
@@ -83,9 +82,6 @@ class gui(QWidget):
 
         #WW_flow dilutes rejects of corresponding stage. no dilution on final stage
         self.WW_flow = [0] * (self.number_of_stages - 1) 
-
-        #flow factor is a proportionality constant specific to each cleaner that is used to calculate flow from PD
-        # self.flow_factor = math.sqrt(self.reference_flow / self.reference_PD) 
 
         self.initUI()
     
@@ -108,10 +104,7 @@ class gui(QWidget):
                 self.number_of_cleaners.update({'stage {}'.format(i + 1): 
                 int(self.field_number_of_cleaners['stage {}'.format(i + 1)].text())})
 
-                for hydrocyclones.cleaner_model in hydrocyclones.cleaner_models:
-                    if hydrocyclones.cleaner_model[0] == str(self.model_dropdown[i].currentText()):
-                        self.flow_factor = math.sqrt(hydrocyclones.cleaner_model[1] / hydrocyclones.cleaner_model[2])
-                        break
+                self.cleaner_model_in_stage = str(self.model_dropdown[i].currentText())
 
                 self.consistencies.update({'{}F'.format(i + 1): float(self.field_cons['{}F'.format(i + 1)].text()) / 100, 
                 '{}A'.format(i + 1): float(self.field_cons['{}A'.format(i + 1)].text()) / 100, 
@@ -136,11 +129,6 @@ class gui(QWidget):
             print('Please enter a value in each field')
 
 
-
-    
-
-
-
     def initUI(self):
         sys_info_title = QLabel('System Info:')
         cons_title = QLabel('Consistencies (%):')
@@ -150,7 +138,6 @@ class gui(QWidget):
         sys_grid = QGridLayout()
         cons_grid = QGridLayout()
         pres_grid = QGridLayout()
-
 
         #adds number of cleaners and cleaner models for each stage
         for i in range(self.number_of_stages):
@@ -165,9 +152,6 @@ class gui(QWidget):
                 self.model_dropdown[i].addItem(hydrocyclones.cleaner_model[0]) #0th item in list refers to cleaner model
             
             sys_grid.addWidget(self.model_dropdown[i], i + 1, 2) 
-
-
-
 
         #this loop maps fields to a dictionary of consistency and pressure values and adds them to the corresponding grids
         for i in range(self.number_of_stages):
@@ -237,9 +221,7 @@ class gui(QWidget):
   
         self.setLayout(data_hbox)
 
-
         calculate_button.clicked.connect(self.calculate)
-
         
         self.setGeometry(300, 300, 300, 150)
         self.setWindowTitle('Data Table')
@@ -248,5 +230,5 @@ class gui(QWidget):
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
-    gui1 = gui()
+    window = gui()
     sys.exit(app.exec())
