@@ -14,6 +14,21 @@ from PyQt5.QtGui import *
 np.set_printoptions(suppress=True) #converts numbers from scientific to standard notation (numpy)
 
 
+def stage_flow_calc(i):
+    actual_PD = gui1.pressures['{}F'.format(i + 1)] - gui1.pressures['{}A'.format(i + 1)]
+    gui1.F_flow[i] = gui1.number_of_cleaners['stage {}'.format(i + 1)] * (math.sqrt(actual_PD) * gui1.flow_factor) ** 2
+    A = np.array([[1, 1], [gui1.consistencies['{}A'.format(i + 1)], gui1.consistencies['{}R'.format(i + 1)]]])
+    B = np.array([gui1.F_flow[i], gui1.consistencies['{}F'.format(i + 1)] * gui1.F_flow[i]])
+    X = np.linalg.solve(A, B)
+    gui1.A_flow[i] = X[0]
+    gui1.R_flow[i] = X[1]
+
+def WW_flow_calc(i):
+    if i < gui1.number_of_stages - 1:
+        if i < gui1.number_of_stages -2:
+            gui1.WW_flow[i] = gui1.F_flow[i + 1] - gui1.R_flow[i] - gui1.A_flow[i + 2]
+        else:
+            gui1.WW_flow[i] = gui1.F_flow[i + 1] - gui1.R_flow[i] 
 
 
 class hydrocyclones():
@@ -35,7 +50,9 @@ posiflow = hydrocyclones('Posiflow', 70, 20)
 
 #refactor to seperate calculations and other functions not directly related to gui
 class gui(QWidget):
-   
+    
+    
+
     def __init__(self):
         super().__init__()
         
@@ -68,7 +85,7 @@ class gui(QWidget):
         self.WW_flow = [0] * (self.number_of_stages - 1) 
 
         #flow factor is a proportionality constant specific to each cleaner that is used to calculate flow from PD
-        self.flow_factor = math.sqrt(self.reference_flow / self.reference_PD) 
+        # self.flow_factor = math.sqrt(self.reference_flow / self.reference_PD) 
 
         self.initUI()
     
@@ -96,17 +113,15 @@ class gui(QWidget):
                         self.flow_factor = math.sqrt(hydrocyclones.cleaner_model[1] / hydrocyclones.cleaner_model[2])
                         break
 
-                self.consistencies.update({'{}F'.format(i + 1): 
-                float(self.field_cons['{}F'.format(i + 1)].text()) / 100, '{}A'.format(i + 1): 
-                float(self.field_cons['{}A'.format(i + 1)].text()) / 100, '{}R'.format(i + 1): 
-                float(self.field_cons['{}R'.format(i + 1)].text()) / 100})
+                self.consistencies.update({'{}F'.format(i + 1): float(self.field_cons['{}F'.format(i + 1)].text()) / 100, 
+                '{}A'.format(i + 1): float(self.field_cons['{}A'.format(i + 1)].text()) / 100, 
+                '{}R'.format(i + 1): float(self.field_cons['{}R'.format(i + 1)].text()) / 100})
                 
-                self.pressures.update({'{}F'.format(i + 1): 
-                float(self.field_pres['{}F'.format(i + 1)].text()), '{}A'.format(i + 1): 
-                float(self.field_pres['{}A'.format(i + 1)].text()), '{}R'.format(i + 1): 
-                float(self.field_pres['{}R'.format(i + 1)].text())})
+                self.pressures.update({'{}F'.format(i + 1): float(self.field_pres['{}F'.format(i + 1)].text()),
+                '{}A'.format(i + 1): float(self.field_pres['{}A'.format(i + 1)].text()), 
+                '{}R'.format(i + 1): float(self.field_pres['{}R'.format(i + 1)].text())})
 
-                self.stage_flow_calc(i)
+                stage_flow_calc(i)
 
                 print('{}F Flow ='.format(i + 1), self.F_flow[i], 'gpm')
                 print('{}A Flow ='.format(i + 1), self.A_flow[i], 'gpm')
@@ -114,30 +129,16 @@ class gui(QWidget):
 
             for i in range(self.number_of_stages):
                 if i < self.number_of_stages - 1:
-                    self.WW_flow_calc(i)
+                    WW_flow_calc(i)
                     print('{}WW Flow ='.format(i + 1), self.WW_flow[i], 'gpm')
 
         except(ValueError): #request data if any fields are left blank. needs to be a message box.
             print('Please enter a value in each field')
 
 
-    def stage_flow_calc(self, i):
-        self.actual_PD = self.pressures['{}F'.format(i + 1)] - self.pressures['{}A'.format(i + 1)]
-        self.F_flow[i] = self.number_of_cleaners['stage {}'.format(i + 1)] * (math.sqrt(self.actual_PD) * self.flow_factor) ** 2
-        self.A = np.array([[1, 1], [self.consistencies['{}A'.format(i + 1)], self.consistencies['{}R'.format(i + 1)]]])
-        self.B = np.array([self.F_flow[i], self.consistencies['{}F'.format(i + 1)] * self.F_flow[i]])
-        self.X = np.linalg.solve(self.A, self.B)
-        self.A_flow[i] = self.X[0]
-        self.R_flow[i] = self.X[1]
+
     
 
-
-    def WW_flow_calc(self, i):
-        if i < self.number_of_stages - 1:
-            if i < self.number_of_stages -2:
-                self.WW_flow[i] = self.F_flow[i + 1] - self.R_flow[i] - self.A_flow[i + 2]
-            else:
-                self.WW_flow[i] = self.F_flow[i + 1] - self.R_flow[i] 
 
 
     def initUI(self):
@@ -247,5 +248,5 @@ class gui(QWidget):
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
-    gui = gui()
+    gui1 = gui()
     sys.exit(app.exec())
