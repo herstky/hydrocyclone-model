@@ -15,9 +15,12 @@ np.set_printoptions(suppress=True) #converts numbers from scientific to standard
 
 
 def stage_flow_calc(i):
+    #pressure drop = feed pressure - accept pressure
     actual_PD = window.pressures['{}F'.format(i + 1)] - window.pressures['{}A'.format(i + 1)]
+    
+    #feed flow to a cleaner = (sqrt(pressure drop) * sqrt((reference flowrate) / (reference pressure drop))) ^ 2
     window.F_flow[i] = window.number_of_cleaners['stage {}'.format(i + 1)] * (math.sqrt(actual_PD) * 
-    hydrocyclones.flow_dict[window.cleaner_model_in_stage]) ** 2
+    hydrocyclones.flow_dict[window.cleaner_model_in_stage]) ** 2 
     
     A = np.array([[1, 1], [window.consistencies['{}A'.format(i + 1)], window.consistencies['{}R'.format(i + 1)]]])
     B = np.array([window.F_flow[i], window.consistencies['{}F'.format(i + 1)] * window.F_flow[i]])
@@ -26,13 +29,14 @@ def stage_flow_calc(i):
     window.R_flow[i] = X[1]
 
 def WW_flow_calc(i):
+    #feed to each stage is diluted by whitewater and the accepts flow from the following stage
     if i < window.number_of_stages - 1:
         if i < window.number_of_stages - 2:
             window.WW_flow[i] = window.F_flow[i + 1] - window.R_flow[i] - window.A_flow[i + 2]
         else:
             window.WW_flow[i] = window.F_flow[i + 1] - window.R_flow[i] 
 
-
+#add functionality for reverse, combicleaners, and FRUs if possible.
 class hydrocyclones():
 
     cleaner_models = []
@@ -44,16 +48,15 @@ class hydrocyclones():
         self.reference_PD = reference_PD
         self.reference_data = [self.reference_flow, self.reference_PD]
         self.flow_factor = math.sqrt(self.reference_flow / self.reference_PD)
-        self.flow_dict.update({self.model: self.flow_factor}) 
-
+        
+        hydrocyclones.flow_dict.update({self.model: self.flow_factor}) 
         hydrocyclones.cleaner_models.append([self.model])
 
-CLP_700 = hydrocyclones('CLP 700', 163, 21) #check reference sheets. store these in seperate file
+CLP_700 = hydrocyclones('CLP 700', 163, 21) #check reference sheets. store these in a seperate file and make it possible to add custome models
 CLP_350 = hydrocyclones('CLP 350', 135, 21) 
 posiflow = hydrocyclones('Posiflow', 70, 20)
 
 
-#refactor to seperate calculations and other functions not directly related to gui
 class gui(QWidget):
 
     def __init__(self):
@@ -63,8 +66,9 @@ class gui(QWidget):
         
         self.cleaner_model_in_stage = [0] * self.number_of_stages #list of cleaner models used in each stage
 
+        #consistencies are entered as percentages then converted to decimals before being stored in this dictionary
         self.field_cons = {}
-        self.consistencies = {} #consistencies are entered as percentages then converted to decimals before being stored in this dictionary
+        self.consistencies = {} 
 
         #pressures are in psi
         self.field_pres = {}
@@ -85,7 +89,7 @@ class gui(QWidget):
 
         self.initUI()
     
-
+    #dropdown menu to select number of stages. gets called before window is created
     def get_number_of_stages(self):
         stages = ('1', '2', '3', '4', '5', '6', '7')
         self.num, ok = QInputDialog.getItem(self, 'Setup', 'Number of stages:', stages, 0, False)
@@ -95,7 +99,8 @@ class gui(QWidget):
             app.exec()
 
 
-    #gets data from user entry fields, converts it from strings to floats, and maps to dictionaries that are used for calculations
+    #called when "caclulate button is pressed. gets data from user entry fields, converts it from strings to floats, and maps 
+    #to dictionaries that are used for calculations. calls calculation functions
     def calculate(self):
         try:
             self.consistencies.update({'WW': float(self.field_cons['WW'].text()) / 100})
@@ -130,98 +135,98 @@ class gui(QWidget):
 
 
     def initUI(self):
-        sys_info_title = QLabel('System Info:')
-        cons_title = QLabel('Consistencies (%):')
-        pres_title = QLabel('Pressures (psi):')
-        calculate_button = QPushButton('Calculate')
+        self.sys_info_title = QLabel('System Info:')
+        self.cons_title = QLabel('Consistencies (%):')
+        self.pres_title = QLabel('Pressures (psi):')
+        self.calculate_button = QPushButton('Calculate')
 
-        sys_grid = QGridLayout()
-        cons_grid = QGridLayout()
-        pres_grid = QGridLayout()
+        self.sys_grid = QGridLayout()
+        self.cons_grid = QGridLayout()
+        self.pres_grid = QGridLayout()
 
-        #adds number of cleaners and cleaner models for each stage
+        #adds labels and fields for number of cleaners and cleaner models for each stage
         for i in range(self.number_of_stages):
-            number_of_cleaners_label = QLabel('Cleaners in stage {} ='.format(i + 1))
-            sys_grid.addWidget(number_of_cleaners_label, i + 1, 0)
+            self.number_of_cleaners_label = QLabel('Cleaners in stage {} ='.format(i + 1))
+            self.sys_grid.addWidget(self.number_of_cleaners_label, i + 1, 0)
 
             self.field_number_of_cleaners.update({'stage {}'.format(i + 1): QLineEdit()})
-            sys_grid.addWidget(self.field_number_of_cleaners['stage {}'.format(i + 1)], i + 1, 1)
+            self.sys_grid.addWidget(self.field_number_of_cleaners['stage {}'.format(i + 1)], i + 1, 1)
 
             self.model_dropdown[i] = QComboBox()
             for hydrocyclones.cleaner_model in hydrocyclones.cleaner_models:
                 self.model_dropdown[i].addItem(hydrocyclones.cleaner_model[0]) #0th item in list refers to cleaner model
             
-            sys_grid.addWidget(self.model_dropdown[i], i + 1, 2) 
+            self.sys_grid.addWidget(self.model_dropdown[i], i + 1, 2) 
 
         #this loop maps fields to a dictionary of consistency and pressure values and adds them to the corresponding grids
         for i in range(self.number_of_stages):
-            cons_feed_label = QLabel('{}F ='.format(i + 1)) #create labels
-            cons_accepts_label = QLabel('{}A ='.format(i + 1))
-            cons_rejects_label = QLabel('{}R ='.format(i + 1))
+            self.cons_feed_label = QLabel('{}F ='.format(i + 1)) #create labels
+            self.cons_accepts_label = QLabel('{}A ='.format(i + 1))
+            self.cons_rejects_label = QLabel('{}R ='.format(i + 1))
 
-            cons_grid.addWidget(cons_feed_label, i, 0) #add labels to grid
-            cons_grid.addWidget(cons_accepts_label, i, 2)
-            cons_grid.addWidget(cons_rejects_label, i, 4)
+            self.cons_grid.addWidget(self.cons_feed_label, i, 0) #add labels to grid
+            self.cons_grid.addWidget(self.cons_accepts_label, i, 2)
+            self.cons_grid.addWidget(self.cons_rejects_label, i, 4)
 
             self.field_cons.update({'{}F'.format(i + 1): QLineEdit(), '{}A'.format(i + 1): 
             QLineEdit(), '{}R'.format(i + 1): QLineEdit()}) #maps fields to a dictionary
-            cons_grid.addWidget(self.field_cons['{}F'.format(i + 1)], i, 1) #add fields to grid
-            cons_grid.addWidget(self.field_cons['{}A'.format(i + 1)], i, 3)
-            cons_grid.addWidget(self.field_cons['{}R'.format(i + 1)], i, 5)
+            self.cons_grid.addWidget(self.field_cons['{}F'.format(i + 1)], i, 1) #add fields to grid
+            self.cons_grid.addWidget(self.field_cons['{}A'.format(i + 1)], i, 3)
+            self.cons_grid.addWidget(self.field_cons['{}R'.format(i + 1)], i, 5)
             
-            pres_feed_label = QLabel('{}F ='.format(i + 1))
-            pres_accepts_label = QLabel('{}A ='.format(i + 1))
-            pres_rejects_label = QLabel('{}R ='.format(i + 1))
-            pres_grid.addWidget(pres_feed_label, i, 0)
-            pres_grid.addWidget(pres_accepts_label, i, 2)
-            pres_grid.addWidget(pres_rejects_label, i, 4)
+            self.pres_feed_label = QLabel('{}F ='.format(i + 1))
+            self.pres_accepts_label = QLabel('{}A ='.format(i + 1))
+            self.pres_rejects_label = QLabel('{}R ='.format(i + 1))
+            self.pres_grid.addWidget(self.pres_feed_label, i, 0)
+            self.pres_grid.addWidget(self.pres_accepts_label, i, 2)
+            self.pres_grid.addWidget(self.pres_rejects_label, i, 4)
 
             self.field_pres.update({'{}F'.format(i + 1): QLineEdit(), '{}A'.format(i + 1): 
             QLineEdit(), '{}R'.format(i + 1): QLineEdit()})
-            pres_grid.addWidget(self.field_pres['{}F'.format(i + 1)], i, 1)
-            pres_grid.addWidget(self.field_pres['{}A'.format(i + 1)], i, 3)
-            pres_grid.addWidget(self.field_pres['{}R'.format(i + 1)], i, 5)            
+            self.pres_grid.addWidget(self.field_pres['{}F'.format(i + 1)], i, 1)
+            self.pres_grid.addWidget(self.field_pres['{}A'.format(i + 1)], i, 3)
+            self.pres_grid.addWidget(self.field_pres['{}R'.format(i + 1)], i, 5)            
 
 
         #create label, map field to dictionary, and add field to grid for WW consistency
-        cons_grid.addWidget(QLabel('WW ='), self.number_of_stages, 0) 
+        self.cons_grid.addWidget(QLabel('WW ='), self.number_of_stages, 0) 
         self.field_cons.update({'WW': QLineEdit()})
-        cons_grid.addWidget(self.field_cons['WW'], self.number_of_stages, 1)
+        self.cons_grid.addWidget(self.field_cons['WW'], self.number_of_stages, 1)
 
-        data_hbox = QHBoxLayout() #outermost box
-        sys_info_vbox = QVBoxLayout()
-        cons_vbox = QVBoxLayout()
-        calc_hbox = QHBoxLayout()
-        pres_vbox = QVBoxLayout()
+        self.data_hbox = QHBoxLayout() #outermost box
+        self.sys_vbox = QVBoxLayout()
+        self.cons_vbox = QVBoxLayout()
+        self.calc_hbox = QHBoxLayout()
+        self.pres_vbox = QVBoxLayout()
 
-        data_hbox.addLayout(sys_info_vbox)
+        self.data_hbox.addLayout(self.sys_vbox)
  
-        sys_info_vbox.addWidget(sys_info_title)
-        sys_info_vbox.addLayout(sys_grid)
-        sys_info_vbox.addStretch(1)
-        sys_info_vbox.setContentsMargins(0, 0, 20, 0)
+        self.sys_vbox.addWidget(self.sys_info_title)
+        self.sys_vbox.addLayout(self.sys_grid)
+        self.sys_vbox.addStretch(1)
+        self.sys_vbox.setContentsMargins(0, 0, 20, 0)
 
-        data_hbox.addLayout(cons_vbox)
-        data_hbox.addLayout(pres_vbox)
-        data_hbox.addStretch(1) #not sure what his does. need to push boxes left
+        self.data_hbox.addLayout(self.cons_vbox)
+        self.data_hbox.addLayout(self.pres_vbox)
+        self.data_hbox.addStretch(1) #not sure what his does. need to push boxes left
 
-        cons_vbox.addWidget(cons_title) #vertical box containing consistency table
-        cons_vbox.addLayout(cons_grid)
-        cons_vbox.addLayout(calc_hbox)
-        cons_vbox.addStretch(1) #pushes consistency table and calculate button upward when resizing window
-        cons_vbox.setContentsMargins(20, 0, 20, 0)
+        self.cons_vbox.addWidget(self.cons_title) #vertical box containing consistency table
+        self.cons_vbox.addLayout(self.cons_grid)
+        self.cons_vbox.addLayout(self.calc_hbox)
+        self.cons_vbox.addStretch(1) #pushes consistency table and calculate button upward when resizing window
+        self.cons_vbox.setContentsMargins(20, 0, 20, 0)
 
-        pres_vbox.addWidget(pres_title) #vertical box containing pressure table
-        pres_vbox.addLayout(pres_grid)
-        pres_vbox.addStretch(1) #pushes pressure table upward when resizing window
-        pres_vbox.setContentsMargins(20, 0, 0, 0)
+        self.pres_vbox.addWidget(self.pres_title) #vertical box containing pressure table
+        self.pres_vbox.addLayout(self.pres_grid)
+        self.pres_vbox.addStretch(1) #pushes pressure table upward when resizing window
+        self.pres_vbox.setContentsMargins(20, 0, 0, 0)
         
-        calc_hbox.addWidget(calculate_button) #box for calculate button
-        calc_hbox.addStretch(1)
+        self.calc_hbox.addWidget(self.calculate_button) #box for calculate button
+        self.calc_hbox.addStretch(1)
   
-        self.setLayout(data_hbox)
+        self.setLayout(self.data_hbox)
 
-        calculate_button.clicked.connect(self.calculate)
+        self.calculate_button.clicked.connect(self.calculate)
         
         self.setGeometry(300, 300, 300, 150)
         self.setWindowTitle('Data Table')
