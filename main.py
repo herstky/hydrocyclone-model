@@ -14,13 +14,14 @@ from PyQt5.QtGui import *
 
 np.set_printoptions(suppress = True) #converts numbers from scientific to standard notation (numpy)
 
-def stage_key(stage_number, location = ''):
-    return('stage {} {}'.format(stage_number, location))
+#formats dictionary key
+def stage_key(stage_number, position = ''):
+    return('stage {} {}'.format(stage_number, position))
 
 #add functionality for reverse, combicleaners, and FRUs if possible.
 class Hydrocyclones():
 
-    cleaner_models = []
+    hydrocyclone_models = []
     flow_dict = {}
 
     def __init__(self, model, reference_flow, reference_PD): #maybe add optional arguments for ideal RRV and RRW range
@@ -30,7 +31,7 @@ class Hydrocyclones():
         self.flow_factor = math.sqrt(reference_flow / reference_PD)
         
         Hydrocyclones.flow_dict.update({model: self.flow_factor}) 
-        Hydrocyclones.cleaner_models.append([model])
+        Hydrocyclones.hydrocyclone_models.append([model])
 
 CLP_700 = Hydrocyclones('CLP 700', 163, 21) #check reference sheets. store these in a seperate file and make it possible to add custome models
 CLP_350 = Hydrocyclones('CLP 350', 135, 21) 
@@ -73,7 +74,7 @@ class Stage():
         Stage.flow_rates[stage_key(self.stage_number, 'accepts')] = X[0]
         Stage.flow_rates[stage_key(self.stage_number, 'rejects')] = X[1]
 
-    def WW_flow_calc(self):
+    def ww_flow_calc(self):
         #feed to each stage is diluted by whitewater and the accepts flow from the following stage
         if self.stage_number < Stage.number_of_stages:
             next_stage_feed_flow = Stage.flow_rates[stage_key(self.stage_number + 1, 'feed')] 
@@ -141,7 +142,7 @@ class Gui(QWidget):
                 print(stage_key(stage_number + 1, 'rejects'), Stage.flow_rates[stage_key(stage_number + 1, 'rejects')], 'gpm')
 
             for stage_number in range(Stage.number_of_stages):
-                Stage.WW_flow_calc(Stage.stage_dictionary[stage_key(stage_number + 1)])
+                Stage.ww_flow_calc(Stage.stage_dictionary[stage_key(stage_number + 1)])
                 
                 if stage_number < Stage.number_of_stages - 1:
                     print(stage_key(stage_number + 1, 'ww'), Stage.flow_rates[stage_key(stage_number + 1, 'ww')], 'gpm')
@@ -164,52 +165,53 @@ class Gui(QWidget):
 
         #adds labels and fields for number of cleaners and cleaner models for each stage
         for stage_number in range(Stage.number_of_stages):
-            self.number_of_hydrocyclones_label = QLabel('Cleaners in stage {} ='.format(stage_number+ 1))
+            self.number_of_hydrocyclones_label = QLabel('Cleaners in stage {} ='.format(stage_number + 1))
             self.sys_grid.addWidget(self.number_of_hydrocyclones_label, stage_number+ 1, 0)
 
-            self.field_number_of_hydrocyclones.update({stage_key(stage_number+ 1): QLineEdit()})
-            self.sys_grid.addWidget(self.field_number_of_hydrocyclones[stage_key(stage_number+ 1)], stage_number+ 1, 1)
+            self.field_number_of_hydrocyclones.update({stage_key(stage_number + 1): QLineEdit()})
+            self.sys_grid.addWidget(self.field_number_of_hydrocyclones[stage_key(stage_number + 1)], stage_number + 1, 1)
 
+            #create cleaner model selection dropdown menu
             self.model_dropdown[stage_number] = QComboBox()
-            for Hydrocyclones.cleaner_model in Hydrocyclones.cleaner_models:
-                self.model_dropdown[stage_number].addItem(Hydrocyclones.cleaner_model[0]) #0th item in list refers to cleaner model
+            for model in Hydrocyclones.hydrocyclone_models:
+                self.model_dropdown[stage_number].addItem(model[0]) #0th item in list refers to cleaner model
             
-            self.sys_grid.addWidget(self.model_dropdown[stage_number], stage_number+ 1, 2) 
+            self.sys_grid.addWidget(self.model_dropdown[stage_number], stage_number + 1, 2) 
             
-            Stage.hydrocyclone_model.update({stage_key(stage_number+ 1): self.model_dropdown[stage_number].currentText()})
+            Stage.hydrocyclone_model.update({stage_key(stage_number + 1): self.model_dropdown[stage_number].currentText()})
 
-            self.cons_feed_label = QLabel('{}F ='.format(stage_number+ 1)) #create labels
-            self.cons_accepts_label = QLabel('{}A ='.format(stage_number+ 1))
-            self.cons_rejects_label = QLabel('{}R ='.format(stage_number+ 1))
+            self.cons_feed_label = QLabel('{}F ='.format(stage_number + 1)) #create labels
+            self.cons_accepts_label = QLabel('{}A ='.format(stage_number + 1))
+            self.cons_rejects_label = QLabel('{}R ='.format(stage_number + 1))
 
             self.cons_grid.addWidget(self.cons_feed_label, stage_number, 0) #add labels to grid
             self.cons_grid.addWidget(self.cons_accepts_label, stage_number, 2)
             self.cons_grid.addWidget(self.cons_rejects_label, stage_number, 4)
 
             self.field_cons.update({
-                stage_key(stage_number+ 1, 'feed'): QLineEdit(), 
-                stage_key(stage_number+ 1, 'accepts'): QLineEdit(), 
-                stage_key(stage_number+ 1, 'rejects'): QLineEdit()}) #maps fields to a dictionary
+                stage_key(stage_number + 1, 'feed'): QLineEdit(), 
+                stage_key(stage_number + 1, 'accepts'): QLineEdit(), 
+                stage_key(stage_number + 1, 'rejects'): QLineEdit()}) #maps fields to a dictionary
 
-            self.cons_grid.addWidget(self.field_cons[stage_key(stage_number+ 1, 'feed')], stage_number, 1) #add fields to grid
-            self.cons_grid.addWidget(self.field_cons[stage_key(stage_number+ 1, 'accepts')], stage_number, 3)
-            self.cons_grid.addWidget(self.field_cons[stage_key(stage_number+ 1, 'rejects')], stage_number, 5)
+            self.cons_grid.addWidget(self.field_cons[stage_key(stage_number + 1, 'feed')], stage_number, 1) #add fields to grid
+            self.cons_grid.addWidget(self.field_cons[stage_key(stage_number + 1, 'accepts')], stage_number, 3)
+            self.cons_grid.addWidget(self.field_cons[stage_key(stage_number + 1, 'rejects')], stage_number, 5)
             
-            self.pres_feed_label = QLabel('{}F ='.format(stage_number+ 1))
-            self.pres_accepts_label = QLabel('{}A ='.format(stage_number+ 1))
-            self.pres_rejects_label = QLabel('{}R ='.format(stage_number+ 1))
+            self.pres_feed_label = QLabel('{}F ='.format(stage_number + 1))
+            self.pres_accepts_label = QLabel('{}A ='.format(stage_number + 1))
+            self.pres_rejects_label = QLabel('{}R ='.format(stage_number + 1))
             self.pres_grid.addWidget(self.pres_feed_label, stage_number, 0)
             self.pres_grid.addWidget(self.pres_accepts_label, stage_number, 2)
             self.pres_grid.addWidget(self.pres_rejects_label, stage_number, 4)
 
             self.field_pres.update({
-                stage_key(stage_number+ 1, 'feed'): QLineEdit(), 
-                stage_key(stage_number+ 1, 'accepts'): QLineEdit(), 
-                stage_key(stage_number+ 1, 'rejects'): QLineEdit()})
+                stage_key(stage_number + 1, 'feed'): QLineEdit(), 
+                stage_key(stage_number + 1, 'accepts'): QLineEdit(), 
+                stage_key(stage_number + 1, 'rejects'): QLineEdit()})
 
-            self.pres_grid.addWidget(self.field_pres[stage_key(stage_number+ 1, 'feed')], stage_number, 1)
-            self.pres_grid.addWidget(self.field_pres[stage_key(stage_number+ 1, 'accepts')], stage_number, 3)
-            self.pres_grid.addWidget(self.field_pres[stage_key(stage_number+ 1, 'rejects')], stage_number, 5)            
+            self.pres_grid.addWidget(self.field_pres[stage_key(stage_number + 1, 'feed')], stage_number, 1)
+            self.pres_grid.addWidget(self.field_pres[stage_key(stage_number + 1, 'accepts')], stage_number, 3)
+            self.pres_grid.addWidget(self.field_pres[stage_key(stage_number + 1, 'rejects')], stage_number, 5)            
 
 
         #create label, map field to dictionary, and add field to grid for WW consistency
