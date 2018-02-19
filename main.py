@@ -11,32 +11,11 @@ import numpy as np
 from PyQt5.QtWidgets import *
 from PyQt5.QtGui import *
 
+
 np.set_printoptions(suppress = True) #converts numbers from scientific to standard notation (numpy)
 
-stage_dict = {}
-
-#refactor to make stages a seperate class
-def stage_flow_calc(i):
-    #pressure drop = feed pressure - accept pressure
-    actual_PD = window.pressures['{}F'.format(i + 1)] - window.pressures['{}A'.format(i + 1)]
-    
-    #feed flow to a cleaner = (sqrt(pressure drop) * sqrt((reference flowrate) / (reference pressure drop))) ^ 2
-    window.F_flow[i] = window.number_of_hydrocyclones['stage {}'.format(i + 1)] * (math.sqrt(actual_PD) * 
-    Hydrocyclones.flow_dict[window.cleaner_model_in_stage]) ** 2 
-    
-    A = np.array([[1, 1], [window.consistencies['{}A'.format(i + 1)], window.consistencies['{}R'.format(i + 1)]]])
-    B = np.array([window.F_flow[i], window.consistencies['{}F'.format(i + 1)] * window.F_flow[i]])
-    X = np.linalg.solve(A, B)
-    window.A_flow[i] = X[0]
-    window.R_flow[i] = X[1]
-
-def WW_flow_calc(i):
-    #feed to each stage is diluted by whitewater and the accepts flow from the following stage
-    if i < Stage.number_of_stages - 1:
-        if i < Stage.number_of_stages - 2:
-            window.WW_flow[i] = window.F_flow[i + 1] - window.R_flow[i] - window.A_flow[i + 2]
-        else:
-            window.WW_flow[i] = window.F_flow[i + 1] - window.R_flow[i] 
+def stage_key(stage_number, location = ''):
+    return('stage {} {}'.format(stage_number, location))
 
 #add functionality for reverse, combicleaners, and FRUs if possible.
 class Hydrocyclones():
@@ -48,7 +27,6 @@ class Hydrocyclones():
         self.model = model
         self.reference_flow = reference_flow
         self.reference_PD = reference_PD
-        self.reference_data = [reference_flow, reference_PD]
         self.flow_factor = math.sqrt(reference_flow / reference_PD)
         
         Hydrocyclones.flow_dict.update({model: self.flow_factor}) 
@@ -58,9 +36,13 @@ CLP_700 = Hydrocyclones('CLP 700', 163, 21) #check reference sheets. store these
 CLP_350 = Hydrocyclones('CLP 350', 135, 21) 
 posiflow = Hydrocyclones('Posiflow', 70, 20)
 
-
-
 class Stage():
+
+    consistencies = {} 
+    pressures = {} 
+    hydrocyclone_model = {}
+    number_of_hydrocyclones = {}
+    flow_rates = {}
 
     def __init__(self, stage_number):
         self.stage_number = stage_number
@@ -73,18 +55,36 @@ class Stage():
         else:
             app.exec()
 
-    # @property
-    # def get_number_of_hydrocylones():
-    #     # self.number_of_hydrocyclones =
+    def stage_flow_calc(self): 
+        actual_PD = Stage.pressures[stage_key(self.stage_number, 'feed')] - Stage.pressures[stage_key(self.stage_number, 'accepts')]
+
+        #feed flow to a cleaner = (sqrt(pressure drop) * (flow factor)) ^ 2
+        feed_flow = Stage.number_of_hydrocyclones[stage_key(self.stage_number)] * (math.sqrt(actual_PD) 
+        * Hydrocyclones.flow_dict[Stage.hydrocyclone_model[stage_key(self.stage_number)]]) ** 2
+        Stage.flow_rates.update({stage_key(self.stage_number, 'feed'): feed_flow})
         
+        A = np.array([[1, 1], [Stage.consistencies[stage_key(self.stage_number, 'accepts')], 
+        Stage.consistencies[stage_key(self.stage_number, 'rejects')]]])
+        
+        B = np.array([Stage.flow_rates[stage_key(self.stage_number, 'feed')], 
+        Stage.consistencies[stage_key(self.stage_number, 'feed')] * Stage.flow_rates[stage_key(self.stage_number, 'feed')]])
+       
+        X = np.linalg.solve(A, B)
+        Stage.flow_rates[stage_key(self.stage_number, 'accepts')] = X[0]
+        Stage.flow_rates[stage_key(self.stage_number, 'rejects')] = X[1]
 
-    # @property
-    # def get_hydrocyclone_model():
-        # self.hydrocyclone_model =
-
-
-# stage1 = Stage(1)
-
+    def WW_flow_calc(self):
+        #feed to each stage is diluted by whitewater and the accepts flow from the following stage
+        if self.stage_number < Stage.number_of_stages:
+            next_stage_feed_flow = Stage.flow_rates[stage_key(self.stage_number + 1, 'feed')] 
+            current_stage_reject_flow = Stage.flow_rates[stage_key(self.stage_number, 'rejects')]
+            if self.stage_number < Stage.number_of_stages - 1:
+                downstream_accept_flow = Stage.flow_rates[stage_key(self.stage_number + 2, 'accepts')]
+               
+                Stage.flow_rates.update({stage_key(self.stage_number, 'ww'): next_stage_feed_flow - current_stage_reject_flow - downstream_accept_flow})
+            
+            else:
+                Stage.flow_rates.update({stage_key(self.stage_number, 'ww'): next_stage_feed_flow - current_stage_reject_flow})
 
 class Gui(QWidget):
 
@@ -92,70 +92,61 @@ class Gui(QWidget):
         super().__init__()
         
         Stage.number_of_stages = Stage.get_number_of_stages(self)
-        
-        self.cleaner_model_in_stage = [0] * Stage.number_of_stages #list of cleaner models used in each stage
+
+        self.field_number_of_hydrocyclones = {}
 
         #consistencies are entered as percentages then converted to decimals before being stored in this dictionary
         self.field_cons = {}
-        self.consistencies = {} 
 
         #pressures are in psi
         self.field_pres = {}
-        self.pressures = {}                    
-
+                           
         self.model_dropdown = [0] * Stage.number_of_stages
 
-        # flow rates are in gpm. assign placeholder values
-        self.F_flow = [0] * Stage.number_of_stages
-        self.A_flow = [0] * Stage.number_of_stages
-        self.R_flow = [0] * Stage.number_of_stages
-
-        self.field_number_of_hydrocyclones = {}
-        self.number_of_hydrocyclones = {} 
-
-        #WW_flow dilutes rejects of corresponding stage. no dilution on final stage
-        self.WW_flow = [0] * (Stage.number_of_stages - 1) 
-
+        #instantiate a Stage object for each stage
         for number in range(Stage.number_of_stages):
-            stage_dictionary = {'stage{}'.format(number): Stage(number) for number in range(Stage.number_of_stages)}
-
-        print(stage_dictionary['stage1'].stage_number)
-        
+            Stage.stage_dictionary = {stage_key(number + 1): Stage(number + 1) for number in range(Stage.number_of_stages)}
+                
         self.initUI()
-    
-    #dropdown menu to select number of stages. gets called before window is created
 
 
     #called when "caclulate button is pressed. gets data from user entry fields, converts it from strings to floats, and maps 
     #to dictionaries that are used for calculations. calls calculation functions
     def calculate(self):
         try:
-            self.consistencies.update({'WW': float(self.field_cons['WW'].text()) / 100})
+            Stage.consistencies.update({'ww': float(self.field_cons['ww'].text()) / 100})
 
-            for i in range(Stage.number_of_stages):
-                self.number_of_hydrocyclones.update({'stage {}'.format(i + 1): 
-                int(self.field_number_of_hydrocyclones['stage {}'.format(i + 1)].text())})
 
-                self.cleaner_model_in_stage = str(self.model_dropdown[i].currentText())
 
-                self.consistencies.update({'{}F'.format(i + 1): float(self.field_cons['{}F'.format(i + 1)].text()) / 100, 
-                '{}A'.format(i + 1): float(self.field_cons['{}A'.format(i + 1)].text()) / 100, 
-                '{}R'.format(i + 1): float(self.field_cons['{}R'.format(i + 1)].text()) / 100})
+            for stage_number in range(Stage.number_of_stages):
+                Stage.number_of_hydrocyclones.update({stage_key(stage_number + 1): 
+                int(self.field_number_of_hydrocyclones[stage_key(stage_number + 1)].text())})
                 
-                self.pressures.update({'{}F'.format(i + 1): float(self.field_pres['{}F'.format(i + 1)].text()),
-                '{}A'.format(i + 1): float(self.field_pres['{}A'.format(i + 1)].text()), 
-                '{}R'.format(i + 1): float(self.field_pres['{}R'.format(i + 1)].text())})
+                Stage.hydrocyclone_model.update({stage_key(stage_number + 1): self.model_dropdown[stage_number].currentText()})
 
-                stage_flow_calc(i)
+                Stage.consistencies.update({
+                    stage_key(stage_number + 1, 'feed'): float(self.field_cons[stage_key(stage_number + 1, 'feed')].text()) / 100, 
+                    stage_key(stage_number + 1, 'accepts'): float(self.field_cons[stage_key(stage_number + 1, 'accepts')].text()) / 100, 
+                    stage_key(stage_number + 1, 'rejects'): float(self.field_cons[stage_key(stage_number + 1, 'rejects')].text()) / 100})
+                
+                Stage.pressures.update({
+                    stage_key(stage_number + 1, 'feed'): float(self.field_pres[stage_key(stage_number + 1, 'feed')].text()),
+                    stage_key(stage_number + 1, 'accepts'): float(self.field_pres[stage_key(stage_number + 1, 'accepts')].text()), 
+                    stage_key(stage_number + 1, 'rejects'): float(self.field_pres[stage_key(stage_number + 1, 'rejects')].text())})
 
-                print('{}F Flow ='.format(i + 1), self.F_flow[i], 'gpm')
-                print('{}A Flow ='.format(i + 1), self.A_flow[i], 'gpm')
-                print('{}R Flow ='.format(i + 1), self.R_flow[i], 'gpm')
+                Stage.stage_flow_calc(Stage.stage_dictionary[stage_key(stage_number + 1)])
 
-            for i in range(Stage.number_of_stages):
-                if i < Stage.number_of_stages - 1:
-                    WW_flow_calc(i)
-                    print('{}WW Flow ='.format(i + 1), self.WW_flow[i], 'gpm')
+                print(stage_key(stage_number + 1, 'feed'), Stage.flow_rates[stage_key(stage_number + 1, 'feed')], 'gpm')
+                print(stage_key(stage_number + 1, 'accepts'), Stage.flow_rates[stage_key(stage_number + 1, 'accepts')], 'gpm')
+                print(stage_key(stage_number + 1, 'rejects'), Stage.flow_rates[stage_key(stage_number + 1, 'rejects')], 'gpm')
+
+            for stage_number in range(Stage.number_of_stages):
+                Stage.WW_flow_calc(Stage.stage_dictionary[stage_key(stage_number + 1)])
+                
+                if stage_number < Stage.number_of_stages - 1:
+                    print(stage_key(stage_number + 1, 'ww'), Stage.flow_rates[stage_key(stage_number + 1, 'ww')], 'gpm')
+
+            print(Stage.flow_rates)
 
         except(ValueError): #request data if any fields are left blank. needs to be a message box.
             print('Please enter a value in each field')
@@ -172,53 +163,59 @@ class Gui(QWidget):
         self.pres_grid = QGridLayout()
 
         #adds labels and fields for number of cleaners and cleaner models for each stage
-        for i in range(Stage.number_of_stages):
-            self.number_of_hydrocyclones_label = QLabel('Cleaners in stage {} ='.format(i + 1))
-            self.sys_grid.addWidget(self.number_of_hydrocyclones_label, i + 1, 0)
+        for stage_number in range(Stage.number_of_stages):
+            self.number_of_hydrocyclones_label = QLabel('Cleaners in stage {} ='.format(stage_number+ 1))
+            self.sys_grid.addWidget(self.number_of_hydrocyclones_label, stage_number+ 1, 0)
 
-            self.field_number_of_hydrocyclones.update({'stage {}'.format(i + 1): QLineEdit()})
-            self.sys_grid.addWidget(self.field_number_of_hydrocyclones['stage {}'.format(i + 1)], i + 1, 1)
+            self.field_number_of_hydrocyclones.update({stage_key(stage_number+ 1): QLineEdit()})
+            self.sys_grid.addWidget(self.field_number_of_hydrocyclones[stage_key(stage_number+ 1)], stage_number+ 1, 1)
 
-            self.model_dropdown[i] = QComboBox()
+            self.model_dropdown[stage_number] = QComboBox()
             for Hydrocyclones.cleaner_model in Hydrocyclones.cleaner_models:
-                self.model_dropdown[i].addItem(Hydrocyclones.cleaner_model[0]) #0th item in list refers to cleaner model
+                self.model_dropdown[stage_number].addItem(Hydrocyclones.cleaner_model[0]) #0th item in list refers to cleaner model
             
-            self.sys_grid.addWidget(self.model_dropdown[i], i + 1, 2) 
-
-        #this loop maps fields to a dictionary of consistency and pressure values and adds them to the corresponding grids
-        for i in range(Stage.number_of_stages):
-            self.cons_feed_label = QLabel('{}F ='.format(i + 1)) #create labels
-            self.cons_accepts_label = QLabel('{}A ='.format(i + 1))
-            self.cons_rejects_label = QLabel('{}R ='.format(i + 1))
-
-            self.cons_grid.addWidget(self.cons_feed_label, i, 0) #add labels to grid
-            self.cons_grid.addWidget(self.cons_accepts_label, i, 2)
-            self.cons_grid.addWidget(self.cons_rejects_label, i, 4)
-
-            self.field_cons.update({'{}F'.format(i + 1): QLineEdit(), '{}A'.format(i + 1): 
-            QLineEdit(), '{}R'.format(i + 1): QLineEdit()}) #maps fields to a dictionary
-            self.cons_grid.addWidget(self.field_cons['{}F'.format(i + 1)], i, 1) #add fields to grid
-            self.cons_grid.addWidget(self.field_cons['{}A'.format(i + 1)], i, 3)
-            self.cons_grid.addWidget(self.field_cons['{}R'.format(i + 1)], i, 5)
+            self.sys_grid.addWidget(self.model_dropdown[stage_number], stage_number+ 1, 2) 
             
-            self.pres_feed_label = QLabel('{}F ='.format(i + 1))
-            self.pres_accepts_label = QLabel('{}A ='.format(i + 1))
-            self.pres_rejects_label = QLabel('{}R ='.format(i + 1))
-            self.pres_grid.addWidget(self.pres_feed_label, i, 0)
-            self.pres_grid.addWidget(self.pres_accepts_label, i, 2)
-            self.pres_grid.addWidget(self.pres_rejects_label, i, 4)
+            Stage.hydrocyclone_model.update({stage_key(stage_number+ 1): self.model_dropdown[stage_number].currentText()})
 
-            self.field_pres.update({'{}F'.format(i + 1): QLineEdit(), '{}A'.format(i + 1): 
-            QLineEdit(), '{}R'.format(i + 1): QLineEdit()})
-            self.pres_grid.addWidget(self.field_pres['{}F'.format(i + 1)], i, 1)
-            self.pres_grid.addWidget(self.field_pres['{}A'.format(i + 1)], i, 3)
-            self.pres_grid.addWidget(self.field_pres['{}R'.format(i + 1)], i, 5)            
+            self.cons_feed_label = QLabel('{}F ='.format(stage_number+ 1)) #create labels
+            self.cons_accepts_label = QLabel('{}A ='.format(stage_number+ 1))
+            self.cons_rejects_label = QLabel('{}R ='.format(stage_number+ 1))
+
+            self.cons_grid.addWidget(self.cons_feed_label, stage_number, 0) #add labels to grid
+            self.cons_grid.addWidget(self.cons_accepts_label, stage_number, 2)
+            self.cons_grid.addWidget(self.cons_rejects_label, stage_number, 4)
+
+            self.field_cons.update({
+                stage_key(stage_number+ 1, 'feed'): QLineEdit(), 
+                stage_key(stage_number+ 1, 'accepts'): QLineEdit(), 
+                stage_key(stage_number+ 1, 'rejects'): QLineEdit()}) #maps fields to a dictionary
+
+            self.cons_grid.addWidget(self.field_cons[stage_key(stage_number+ 1, 'feed')], stage_number, 1) #add fields to grid
+            self.cons_grid.addWidget(self.field_cons[stage_key(stage_number+ 1, 'accepts')], stage_number, 3)
+            self.cons_grid.addWidget(self.field_cons[stage_key(stage_number+ 1, 'rejects')], stage_number, 5)
+            
+            self.pres_feed_label = QLabel('{}F ='.format(stage_number+ 1))
+            self.pres_accepts_label = QLabel('{}A ='.format(stage_number+ 1))
+            self.pres_rejects_label = QLabel('{}R ='.format(stage_number+ 1))
+            self.pres_grid.addWidget(self.pres_feed_label, stage_number, 0)
+            self.pres_grid.addWidget(self.pres_accepts_label, stage_number, 2)
+            self.pres_grid.addWidget(self.pres_rejects_label, stage_number, 4)
+
+            self.field_pres.update({
+                stage_key(stage_number+ 1, 'feed'): QLineEdit(), 
+                stage_key(stage_number+ 1, 'accepts'): QLineEdit(), 
+                stage_key(stage_number+ 1, 'rejects'): QLineEdit()})
+
+            self.pres_grid.addWidget(self.field_pres[stage_key(stage_number+ 1, 'feed')], stage_number, 1)
+            self.pres_grid.addWidget(self.field_pres[stage_key(stage_number+ 1, 'accepts')], stage_number, 3)
+            self.pres_grid.addWidget(self.field_pres[stage_key(stage_number+ 1, 'rejects')], stage_number, 5)            
 
 
         #create label, map field to dictionary, and add field to grid for WW consistency
         self.cons_grid.addWidget(QLabel('WW ='), Stage.number_of_stages, 0) 
-        self.field_cons.update({'WW': QLineEdit()})
-        self.cons_grid.addWidget(self.field_cons['WW'], Stage.number_of_stages, 1)
+        self.field_cons.update({'ww': QLineEdit()})
+        self.cons_grid.addWidget(self.field_cons['ww'], Stage.number_of_stages, 1)
 
         self.data_hbox = QHBoxLayout() #outermost box
         self.sys_vbox = QVBoxLayout()
