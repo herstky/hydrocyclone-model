@@ -11,15 +11,61 @@ import numpy as np
 from PyQt5.QtWidgets import *
 from PyQt5.QtGui import *
 
-
 np.set_printoptions(suppress = True) #converts numbers from scientific to standard notation (numpy)
 
 #formats dictionary key
 def stage_key(stage_number, position = ''):
     return('stage {} {}'.format(stage_number, position))
 
+class Furnish:
+
+    #densities are in pounds per cubic foot
+    fiber_densities = {
+        'water': 62.4, 'paper birch': 34, 'american chestnut': 25, 
+        'red maple': 30, 'carolina poplar': 24, 'white spruce': 23,
+        'black spruce': 25, 'norway spruce': 30, 'longleaf pine': 29, 
+        'virginia pine': 26, 'jack pine': 24, 'red pine': 27,
+        'western hemlock': 25, 'eastern hemlock': 24, 'carolina hemlock': 30,
+        'alpine fir': 21, 'noble fir': 22, 'douglas fir': 29,
+        'white cedar': 26} 
+
+    def __init__(
+        self,
+        component1, component1_fraction = 1, #component fractions are mass fractions
+        component2 = 'water', component2_fraction = 0, #water is used as a placeholder. mass fraction is 0 unless otherwise specified
+        component3 = 'water', component3_fraction = 0, 
+        component4 = 'water', component4_fraction = 0):
+
+        self.component1 = component1
+        self.component1_fraction = component1_fraction
+        self.component2 = component2
+        self.component2_fraction = component2_fraction
+        self.component3 = component3
+        self.component3_fraction = component3_fraction
+        self.component4 = component4
+        self.component4_fraction = component4_fraction
+
+    def density(self, stage_number, position):
+        if position == 'ww':
+            fiber_mass_fraction = Stage.consistencies['ww']
+
+        else:
+            fiber_mass_fraction = Stage.consistencies[stage_key(stage_number, position)]
+        
+        weighted_average = self.component1_fraction * Furnish.fiber_densities[self.component1] 
+        + self.component2_fraction * Furnish.fiber_densities[self.component2]
+        + self.component3_fraction * Furnish.fiber_densities[self.component3]
+        + self.component4_fraction * Furnish.fiber_densities[self.component4]
+        
+        return(fiber_mass_fraction * weighted_average)
+
+hardwood_softwood_blend = Furnish('white spruce', .5, 'carolina poplar', .5)
+softwood = Furnish('longleaf pine')
+hardwood = Furnish('paper birch')
+
+
 #add functionality for reverse, combicleaners, and FRUs if possible.
-class Hydrocyclones():
+class Hydrocyclones:
 
     hydrocyclone_models = []
     flow_dict = {}
@@ -37,13 +83,14 @@ CLP_700 = Hydrocyclones('CLP 700', 163, 21) #check reference sheets. store these
 CLP_350 = Hydrocyclones('CLP 350', 135, 21) 
 posiflow = Hydrocyclones('Posiflow', 70, 20)
 
-class Stage():
+class Stage:
 
-    consistencies = {} 
-    pressures = {} 
+    consistencies = {} #percent
+    pressures = {} #psi
     hydrocyclone_model = {}
     number_of_hydrocyclones = {}
-    flow_rates = {}
+    flow_rates = {} #gpm
+    mass_flow_rates = {} #bone-dry short tons per day (BDSTPD)
 
     def __init__(self, stage_number):
         self.stage_number = stage_number
@@ -55,6 +102,11 @@ class Stage():
             return(int(stages_chosen))
         else:
             app.exec()
+
+    @staticmethod
+    def mass_flow(stage_number, flow, position):
+        #gal/min * (0.133681 ft^3)/gal * lb/ft^3 * (0.0005 st)/lb * (1440 min)/day 
+        return(flow * softwood.density(stage_number, position) * 0.133681 * 0.0005 * 1440)
 
     def stage_flow_calc(self): 
         actual_PD = Stage.pressures[stage_key(self.stage_number, 'feed')] - Stage.pressures[stage_key(self.stage_number, 'accepts')]
@@ -74,8 +126,21 @@ class Stage():
         Stage.flow_rates[stage_key(self.stage_number, 'accepts')] = X[0]
         Stage.flow_rates[stage_key(self.stage_number, 'rejects')] = X[1]
 
+        feed_mass_flow = Stage.mass_flow(self.stage_number, Stage.flow_rates[stage_key(self.stage_number, 'feed')], 'feed')
+        accepts_mass_flow = Stage.mass_flow(self.stage_number, Stage.flow_rates[stage_key(self.stage_number, 'accepts')], 'accepts')
+        rejects_mass_flow = Stage.mass_flow(self.stage_number, Stage.flow_rates[stage_key(self.stage_number, 'rejects')], 'rejects')
+        
+        Stage.mass_flow_rates.update({
+            stage_key(self.stage_number, 'feed'): feed_mass_flow,
+            stage_key(self.stage_number, 'accepts'): accepts_mass_flow,
+            stage_key(self.stage_number, 'rejects'): rejects_mass_flow})
+
+        # print(Stage.mass_flow(self.stage_number, Stage.flow_rates[stage_key(self.stage_number, 'feed')], 'feed'))
+        # print(Stage.mass_flow(self.stage_number, Stage.flow_rates[stage_key(self.stage_number, 'accepts')], 'accepts'))
+        # print(Stage.mass_flow(self.stage_number, Stage.flow_rates[stage_key(self.stage_number, 'rejects')], 'rejects'))
+
     def ww_flow_calc(self):
-        #feed to each stage is diluted by whitewater and the accepts flow from the following stage
+        #feed to each stage is diluted by whitewater and downstream accepts
         if self.stage_number < Stage.number_of_stages:
             next_stage_feed_flow = Stage.flow_rates[stage_key(self.stage_number + 1, 'feed')] 
             current_stage_reject_flow = Stage.flow_rates[stage_key(self.stage_number, 'rejects')]
@@ -83,15 +148,21 @@ class Stage():
                 downstream_accept_flow = Stage.flow_rates[stage_key(self.stage_number + 2, 'accepts')]
                
                 Stage.flow_rates.update({stage_key(self.stage_number, 'ww'): next_stage_feed_flow - current_stage_reject_flow - downstream_accept_flow})
-            
+                ww_mass_flow = Stage.mass_flow(self.stage_number, Stage.flow_rates[stage_key(self.stage_number, 'ww')], 'ww')
+                Stage.mass_flow_rates.update({stage_key(self.stage_number, 'ww'): ww_mass_flow})
+
             else:
                 Stage.flow_rates.update({stage_key(self.stage_number, 'ww'): next_stage_feed_flow - current_stage_reject_flow})
+                ww_mass_flow = Stage.mass_flow(self.stage_number, Stage.flow_rates[stage_key(self.stage_number, 'ww')], 'ww')
+                Stage.mass_flow_rates.update({stage_key(self.stage_number, 'ww'): ww_mass_flow})
+
 
 class Gui(QWidget):
 
     def __init__(self):
         super().__init__()
         
+        #get number of stages from dropdown menu
         Stage.number_of_stages = Stage.get_number_of_stages(self)
 
         self.field_number_of_hydrocyclones = {}
@@ -111,13 +182,11 @@ class Gui(QWidget):
         self.initUI()
 
 
-    #called when "caclulate button is pressed. gets data from user entry fields, converts it from strings to floats, and maps 
+    #called when 'caclulate' button is pressed. gets data from user entry fields, converts it from strings to floats, and maps 
     #to dictionaries that are used for calculations. calls calculation functions
     def calculate(self):
         try:
             Stage.consistencies.update({'ww': float(self.field_cons['ww'].text()) / 100})
-
-
 
             for stage_number in range(Stage.number_of_stages):
                 Stage.number_of_hydrocyclones.update({stage_key(stage_number + 1): 
@@ -144,10 +213,12 @@ class Gui(QWidget):
             for stage_number in range(Stage.number_of_stages):
                 Stage.ww_flow_calc(Stage.stage_dictionary[stage_key(stage_number + 1)])
                 
-                if stage_number < Stage.number_of_stages - 1:
-                    print(stage_key(stage_number + 1, 'ww'), Stage.flow_rates[stage_key(stage_number + 1, 'ww')], 'gpm')
+                # if stage_number < Stage.number_of_stages - 1:
+                #     print(stage_key(stage_number + 1, 'ww'), Stage.flow_rates[stage_key(stage_number + 1, 'ww')], 'gpm')
 
-            print(Stage.flow_rates)
+            print('consistencies = ' + str(Stage.consistencies))
+            print('flow rates = ' + str(Stage.flow_rates))
+            print('mass flow rates = ' + str(Stage.mass_flow_rates))
 
         except(ValueError): #request data if any fields are left blank. needs to be a message box.
             print('Please enter a value in each field')
